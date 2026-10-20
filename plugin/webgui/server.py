@@ -54,6 +54,10 @@ class HTTPServer(ThreadingHTTPServer):
 class Server:
     def __init__(self, bridge):
         self.http = HTTPServer((bridge.settings["host"], bridge.settings["port"]), bridge)
+        # Used by the HTTPS demo/test fixture. Production TLS terminates at the
+        # Nicotine+ host's reverse proxy; no forwarded headers are trusted here.
+        if getattr(bridge, "tls_context", None):
+            self.http.socket = bridge.tls_context.wrap_socket(self.http.socket, server_side=True)
         self.thread = threading.Thread(target=self.http.serve_forever, name="NicotineWebHTTP", daemon=True)
 
     def start(self):
@@ -87,14 +91,17 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.handle_api()
 
-    do_POST = do_PATCH = do_DELETE = do_GET
+    do_POST = do_PATCH = do_DELETE = do_OPTIONS = do_GET
 
     def headers_common(self, content_type):
+        self.send_header("Vary", "Origin")
+        if getattr(self, "cors_origin", None):
+            self.send_header("Access-Control-Allow-Origin", self.cors_origin)
         self.send_header("Content-Type", content_type)
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("X-Frame-Options", "DENY")
-        self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
+        self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
         self.send_header("Cache-Control", "no-store")
 
     def respond(self, status, payload, cookie=None):
@@ -124,10 +131,38 @@ class Handler(BaseHTTPRequestHandler):
         allowed = {h.strip().lower() for h in self.server.bridge.settings["trusted_hosts"].split(",")}
         if hostname not in allowed or not hostname or port == 0:
             raise APIError(403, "host", "Untrusted Host")
-        if self.command != "GET":
-            origins = self.headers.get_all("Origin", [])
-            if len(origins) != 1 or origins[0] != "http://" + hosts[0]:
-                raise APIError(403, "origin", "Origin must match this server")
+        origins = self.headers.get_all("Origin", [])
+        if len(origins) > 1:
+            raise APIError(403, "origin", "Invalid Origin")
+        origin = origins[0] if origins else None
+        allowed_origins = {value.strip() for value in self.server.bridge.settings.get("allowed_origins", "").split(",") if value.strip()}
+        if origin is not None and origin != "http://" + hosts[0] and origin not in allowed_origins:
+            raise APIError(403, "origin", "Web GUI origin is not allowed by this plugin")
+        if self.command not in {"GET", "HEAD"} and origin is None:
+            raise APIError(403, "origin", "Origin is required")
+        self.cors_origin = origin
+
+    def preflight(self):
+        if not urlsplit(self.path).path.startswith("/api/v1/"):
+            raise APIError(404, "not_found", "Unknown API route")
+        method = self.headers.get("Access-Control-Request-Method", "")
+        requested = {value.strip().lower() for value in self.headers.get("Access-Control-Request-Headers", "").split(",") if value.strip()}
+        if method not in {"GET", "POST", "PATCH", "DELETE"} or requested - {"authorization", "content-type", "x-csrf-token", "last-event-id"}:
+            raise APIError(403, "cors", "Unsupported cross-origin request")
+        self.send_response(204)
+        self.headers_common("application/json")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE")
+        self.send_header("Access-Control-Allow-Headers", "Authorization, Content-Type, X-CSRF-Token, Last-Event-ID")
+        self.send_header("Access-Control-Max-Age", "600")
+        self.send_header("Content-Length", "0")
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.close_connection = True
+
+    def authenticate(self):
+        if len(self.headers.get_all("Authorization", [])) > 1:
+            raise APIError(401, "unauthenticated", "Ambiguous authorization")
+        return self.server.bridge.auth.session(self.headers.get("Cookie"), self.headers.get("Authorization"), self.headers.get("Origin"))
 
     def body(self):
         if self.headers.get("Transfer-Encoding"):
@@ -159,6 +194,8 @@ class Handler(BaseHTTPRequestHandler):
         try:
             bridge = self.server.bridge
             self.validate_host()
+            if self.command == "OPTIONS":
+                return self.preflight()
             parsed = urlsplit(self.path)
             path = parsed.path
             query = parse_qs(parsed.query, max_num_fields=30)
@@ -170,9 +207,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self.static(path)
             body = self.body() if self.command != "GET" else {}
             if path == "/api/v1/auth/login" and self.command == "POST":
-                sid, session = bridge.auth.login(body.get("token"))
+                mode = body.get("mode", "cookie")
+                sid, session = bridge.auth.login(body.get("token"), mode, self.headers.get("Origin"))
+                if mode == "bearer":
+                    return self.respond(200, bridge.envelope({**session, "session_token": sid}))
                 return self.respond(200, bridge.envelope(session), f"npw_session={sid}; HttpOnly; SameSite=Strict; Path=/; Max-Age={bridge.auth.ttl}")
-            sid, session = bridge.auth.session(self.headers.get("Cookie"))
+            sid, session = self.authenticate()
             if self.command != "GET":
                 bridge.auth.check_csrf(session, self.headers.get("X-CSRF-Token"))
             if path == "/api/v1/auth/logout" and self.command == "POST":
@@ -214,6 +254,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Connection", "close")
             self.send_header("X-Accel-Buffering", "no")
             self.end_headers()
+            self.wfile.write(b": connected\n\n")
             for frame in replay:
                 self.frame(frame)
             self.wfile.flush()
@@ -224,7 +265,7 @@ class Handler(BaseHTTPRequestHandler):
                     frame = {"event": "heartbeat", "data": {}}
                 # Logout invalidates existing streams as well as future requests.
                 try:
-                    bridge.auth.session(self.headers.get("Cookie"))
+                    self.authenticate()
                 except APIError:
                     break
                 if frame is None:

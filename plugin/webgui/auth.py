@@ -25,7 +25,9 @@ class Auth:
                 raise APIError(429, "rate_limited", "Too many requests; retry later")
             bucket.append(now)
 
-    def login(self, token):
+    def login(self, token, mode="cookie", origin=None):
+        if not isinstance(mode, str) or mode not in {"cookie", "bearer"}:
+            raise APIError(400, "validation", "Unknown authentication mode")
         self.rate(self.attempts, 5, 60)
         if not isinstance(token, str) or not hmac.compare_digest(token.encode(), self.token.encode()):
             raise APIError(401, "unauthenticated", "Invalid token")
@@ -34,26 +36,39 @@ class Auth:
             if len(self.sessions) >= self.limit:
                 raise APIError(503, "busy", "Session capacity reached")
             sid, csrf = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
-            self.sessions[sid] = {"csrf": csrf, "expires": time.time() + self.ttl}
-            return sid, self.sessions[sid].copy()
+            self.sessions[sid] = {"csrf": csrf, "expires": time.time() + self.ttl,
+                                  "mode": mode, "origin": origin}
+            return sid, self.public(self.sessions[sid])
+
+    @staticmethod
+    def public(session):
+        return {key: session[key] for key in ("csrf", "expires")}
 
     def _prune(self):
         now = time.time()
         self.sessions = {k: v for k, v in self.sessions.items() if v["expires"] > now}
 
-    def session(self, cookie):
-        try:
-            cookies = SimpleCookie()
-            cookies.load(cookie or "")
-            sid = cookies["npw_session"].value
-        except (KeyError, CookieError):
-            raise APIError(401, "unauthenticated", "Please log in") from None
+    def session(self, cookie, authorization=None, origin=None):
+        mode = "bearer" if authorization is not None else "cookie"
+        if mode == "bearer":
+            scheme, separator, sid = authorization.partition(" ")
+            if scheme.lower() != "bearer" or not separator or not sid or any(c.isspace() for c in sid):
+                raise APIError(401, "unauthenticated", "Invalid bearer session")
+        else:
+            try:
+                cookies = SimpleCookie()
+                cookies.load(cookie or "")
+                sid = cookies["npw_session"].value
+            except (KeyError, CookieError):
+                raise APIError(401, "unauthenticated", "Please log in") from None
         with self.lock:
             self._prune()
             session = self.sessions.get(sid)
-            if session is None:
+            if session is None or session["mode"] != mode:
                 raise APIError(401, "unauthenticated", "Session expired")
-            return sid, session.copy()
+            if mode == "bearer" and origin is not None and origin != session["origin"]:
+                raise APIError(403, "origin", "Session belongs to a different origin")
+            return sid, self.public(session)
 
     def check_csrf(self, session, csrf):
         if not hmac.compare_digest(session["csrf"].encode(), (csrf or "").encode()):

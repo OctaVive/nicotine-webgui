@@ -1,5 +1,7 @@
 # Nicotine Web GUI — Design and Implementation Plan
 
+> Historical design: the bundled Nicotine+ image and loopback-only assumptions below are superseded by the separate-host deployment in `remote-webgui.md`. Follow that plan and the README for current installation and authentication.
+
 Status: Initial implementation in repository; validation tracked in `plan/execution.md`
 Date: 2026-10-20
 Target: Nicotine+ 3.3.x (verified against 3.3.6)

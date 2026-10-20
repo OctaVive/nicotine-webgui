@@ -21,7 +21,7 @@ class Plugin(BasePlugin):
     def init(self):
         adapter = Adapter()
         settings = dict(self.settings)
-        for key in ("host", "port", "token", "trusted_hosts"):
+        for key in ("host", "port", "token", "trusted_hosts", "allowed_origins"):
             env = os.environ.get("NICOTINE_WEBUI_" + key.upper())
             if env is not None:
                 settings[key] = int(env) if key == "port" else env

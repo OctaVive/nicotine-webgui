@@ -81,7 +81,7 @@ export interface Routes {
   "GET /session": Envelope<Session>;
   "GET /openapi.json": Envelope<unknown>;
   "GET /events": Envelope<unknown>;
-  "POST /auth/login": Envelope<unknown>;
+  "POST /auth/login": Envelope<LoginResult>;
   "POST /auth/logout": Envelope<unknown>;
 }
 export type ApiRoute = keyof Routes;
@@ -89,6 +89,7 @@ export interface Envelope<T> { ok: true; data: T; revision: number; instance: st
 export type SearchInput = { "term": string; "mode"?: "global" | "rooms" | "buddies" | "user"; "room"?: string; "users"?: Array<string> };
 export type Status = { "connected": boolean; "username": string | null; "away": boolean; "download_speed": number; "upload_speed": number };
 export type Session = { "csrf": string; "expires": number; "capabilities": Array<string>; "version": string; "nicotine_version": string };
+export type LoginResult = { "csrf": string; "expires": number; "session_token"?: string };
 export type FileRow = { "id": string; "username": string; "virtual_path": string; "size": number; "speed"?: number; "queue"?: number; "bitrate"?: number | null };
 export type Transfer = { "id": string; "username": string; "virtual_path": string; "size": number; "speed"?: number; "queue"?: number; "bitrate"?: number | null; "status": string; "current_byte_offset": number; "time_left": number; "queue_position": number };
 export type Results = { "items": Array<FileRow>; "truncated": boolean; "total"?: number; "next_cursor"?: string | null };

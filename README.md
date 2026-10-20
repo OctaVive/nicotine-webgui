@@ -1,117 +1,167 @@
 # Nicotine Web GUI
 
-A local browser companion for Nicotine+ 3.3.6–3.3.x. Nicotine+ owns the Soulseek connection, transfers, and shares. A Python standard-library plugin serves a React application, REST API, and live SSE stream from the same process.
+A browser remote control for an **existing Nicotine+ instance**, using the `nicotine_webui` plugin installed on that instance. The UI and Nicotine+ may run on different servers.
 
-The application includes search, file and folder downloads, transfer actions and limits, rooms and private chat, notifications, logs, buddies, browsing, profiles, interests, wishlist, shares, plugin controls, curated settings, and statistics. This is an initial implementation; release validation is tracked in [the execution checklist](plan/execution.md).
+```text
+Web GUI server ── serves the React app ──► Browser
+                                           │ HTTPS REST + live events
+                                           ▼
+                              Nicotine+ host's HTTPS reverse proxy
+                                           │ local HTTP
+                                           ▼
+                              nicotine_webui plugin → Nicotine+
+```
 
-## Try it without an account
+The browser connects directly to the plugin URL you enter. The UI container does not run Nicotine+, proxy its API, access its plugin folder, mount its files, or need Soulseek credentials.
 
-Requires Python 3.9+ and Node 22 LTS (22.12+).
+## 1. Install the plugin on the existing Nicotine+ host
+
+Supports Nicotine+ 3.3.6–3.3.x. Run this step **on the Nicotine+ machine**, as the user who runs Nicotine+:
+
+1. Close Nicotine+ before changing its plugin files/configuration.
+2. Copy this repository to that machine and run:
+
+   ```sh
+   python3 dev/scripts/install_plugin.py
+   ```
+
+   This installs the bridge only; Node and a frontend build are not required. Existing account settings are preserved and the config is backed up as `config.pre-webgui`. `--data-dir` and `--config` override detected paths. Alternatively, copy the contents of `plugin/` into the existing client's `plugins/nicotine_webui/` folder and enable it in Nicotine+.
+3. Start Nicotine+. Open Preferences → Plugins → Nicotine Web GUI and configure:
+
+   | Setting | Example | Purpose |
+   | --- | --- | --- |
+   | `host` | `127.0.0.1` | Bind locally when the HTTPS proxy is on this machine |
+   | `port` | `8181` | Plugin's local HTTP port |
+   | `trusted_hosts` | `localhost,127.0.0.1,nicotine.example.com` | Allowed incoming Host names |
+   | `allowed_origins` | `https://music.example.com` | Exact origin of the browser Web GUI |
+   | `token` | generated automatically | Access token entered in the browser |
+
+   Restart/reload the plugin after changing connection settings. Multiple allowed origins are comma-separated. Origins include the scheme and nonstandard port, with **no path or trailing slash**. Wildcards are not accepted. For a locally opened UI, the origin might be `http://127.0.0.1:8181` instead.
+
+Headless users can supply `NICOTINE_WEBUI_HOST`, `NICOTINE_WEBUI_PORT`, `NICOTINE_WEBUI_TOKEN`, `NICOTINE_WEBUI_TRUSTED_HOSTS`, and `NICOTINE_WEBUI_ALLOWED_ORIGINS` in the existing Nicotine+ process environment. These override persisted plugin settings. These are settings for the **Nicotine+ process**, not the Web GUI container.
+
+## 2. Give the plugin an HTTPS endpoint
+
+The browser must be able to reach the plugin over HTTPS with a valid certificate. Terminate TLS at an existing reverse proxy on the Nicotine+ host and forward to the local plugin. For example, inside an Nginx HTTPS server for `nicotine.example.com`:
+
+```nginx
+# The containing server block supplies your TLS certificate and key.
+location / {
+    proxy_pass http://127.0.0.1:8181;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header Connection "";
+    proxy_buffering off;
+    proxy_cache off;
+    proxy_read_timeout 75s;
+}
+```
+
+Preserve `Origin`, `Authorization`, `X-CSRF-Token`, and `Last-Event-ID` request headers. Nginx normally forwards them; do not replace the browser's Origin. Let the plugin handle CORS rather than adding duplicate CORS headers in the proxy. SSE needs buffering and caching disabled and a timeout longer than the 20-second heartbeat.
+
+For a path prefix, use a trailing slash to strip it when proxying:
+
+```nginx
+location /nicotine/ {
+    proxy_pass http://127.0.0.1:8181/;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header Connection "";
+    proxy_buffering off;
+    proxy_cache off;
+    proxy_read_timeout 75s;
+}
+```
+
+Then enter `https://nicotine.example.com/nicotine` in the connection screen. Use the final endpoint directly; API redirects are rejected to avoid forwarding credentials to an unexpected destination. TLS and CORS failures appear as connection errors in the UI; inspect the browser's Network panel and the proxy logs if needed.
+
+## 3. Run the Web GUI container on its own server
+
+```sh
+# Optional; all values already have defaults in Compose.
+cp .env.example .env
+
+docker compose up -d --build webui
+```
+
+Open **http://127.0.0.1:8181**, or expose it through your Web GUI server's HTTPS reverse proxy, such as **https://music.example.com**. For LAN publishing without a local proxy, change `WEBUI_BIND_ADDRESS` in `.env`; the default `127.0.0.1` keeps the host port local.
+
+If the UI and plugin run on the same host, choose a different host port for the UI, such as `WEBUI_PORT=8180`, so it does not conflict with the plugin's port 8181.
+
+Enter:
+
+- **Plugin URL:** `https://nicotine.example.com` (or the proxy prefix above).
+- **Access token:** the token from the existing Nicotine+ plugin preferences.
+
+The plugin's `allowed_origins` must match the origin of the page you actually opened. A browser on another computer cannot use a loopback plugin URL to reach the Nicotine+ server.
+
+The UI image runs as UID/GID `10001:10001`, uses a read-only filesystem, and needs no persistent volumes or `.env` secrets. Its `/health` endpoint checks the UI server only, independently of Nicotine+. All downloads, shares, logs, and Soulseek peer port configuration remain on the existing Nicotine+ host.
+
+### Migration from the earlier bundled image
+
+The previous image tried to start its own Nicotine+ instance and install a plugin into `/data`. That architecture is retired. On the Web GUI server, stop the old Compose project's container and recreate it using the new configuration:
+
+```sh
+docker compose down --remove-orphans
+docker compose up -d --build webui
+```
+
+This stops containers belonging to this Compose project. Leave your separately managed Nicotine+ instance running, except when installing/upgrading its plugin. Do not use `down -v`; old data/config/download/share directories are not deleted or migrated. Old `WEBUI_TOKEN`, `PUID`, `PGID`, `NICOTINE_USERNAME`, and `NICOTINE_PASSWORD` entries in the UI's `.env` are no longer used. The only UI settings are `WEBUI_BIND_ADDRESS` and `WEBUI_PORT`.
+
+## Authentication and live updates
+
+Remote login exchanges the long-lived plugin access token for a temporary bearer session and CSRF token. The access token is discarded after login, never embedded in the UI image, and never saved in browser storage. The selected endpoint is saved in local storage. The temporary session is saved only in tab-scoped session storage so reloads work. Sessions expire after 12 hours or plugin restart; reconnect with the access token then.
+
+API requests omit cookies and use `Authorization: Bearer …`; mutations also require `X-CSRF-Token`. Cross-origin preflight is supported only for configured origins, methods, and headers. Native cookie authentication remains available for existing same-origin API clients. Install with `--with-ui` after building the SPA to retain optional native UI hosting; same-origin HTTP is allowed only for that local compatibility case.
+
+When optionally hosting the native UI behind HTTPS, include that page's origin in `allowed_origins` too.
+
+Live events use authenticated streaming fetch. The client handles split UTF-8/SSE frames, heartbeat comments, replay cursors, resync, and network reconnect. Logging out or changing the connection aborts old requests and clears instance-specific caches and workspace tabs. If a mutation has already started, the client polls its command ID rather than repeating it.
+
+Ordinary API requests time out after 15 seconds. A stream with no data or heartbeat for 45 seconds is cancelled and reconnected; active streams have no overall time limit.
+
+The authenticated API contract is available at `/api/v1/openapi.json` on the plugin. Run `python3 dev/scripts/contracts.py` to regenerate [openapi.yaml](openapi.yaml) and frontend domain/route types; CI checks for drift.
+
+## Features
+
+Search and virtualized results, file/folder downloads, download/upload controls and limits, rooms/private chat, unread state and bounded log backfill, notifications/logs, browsing/profiles, buddies, interests/recommendations, wishlist, shares, curated settings, plugin management, and statistics. Files stay on the Nicotine+ host; the browser does not stream or upload local media.
+
+Shortcuts: `/` focuses search, Ctrl/Cmd+K opens navigation, Alt+1–9 switches sections, and Ctrl/Cmd+Enter sends messages. Theme, density, and layout preferences persist locally.
+
+## Development and tests
+
+Requires Python 3.9+ and Node 22.12+ LTS:
 
 ```sh
 cd web
 npm ci
 npm run build
+npm test
+npx playwright install chromium
+npm run test:e2e
 cd ..
-python3 dev/mock_bridge.py
-```
-
-Open **http://127.0.0.1:8181**, token **`demo`**. The deterministic demo provides 10,000 search results, transfer actions, and chat replies. It does not connect to Soulseek or modify your Nicotine+ profile. Stop it with Ctrl+C. Demo actions beyond these workflows may return an explicit unsupported-action error.
-
-## Docker installation
-
-Requires Docker Engine and Compose v2. The image builds the web app and installs a pinned Nicotine+ wheel without GTK or other Python dependencies.
-
-```sh
-cp .env.example .env
-python3 -c 'import secrets; print(secrets.token_urlsafe(32))'
-# Put the generated value in .env as WEBUI_TOKEN.
-mkdir -p config data downloads shares
-# Linux: make config, data, and downloads writable by PUID:PGID from .env.
-# For the default IDs: sudo chown -R 1000:1000 config data downloads
-docker compose build
-docker compose run --rm -it nicotine
-```
-
-Follow Nicotine+’s username/password prompts, then exit with `/quit`. Start the service:
-
-```sh
-docker compose up -d
-docker compose logs -f nicotine
-```
-
-Open **http://127.0.0.1:8181** and enter `WEBUI_TOKEN`. Alternatively, set both `NICOTINE_USERNAME` and `NICOTINE_PASSWORD` in `.env` before the first run and skip interactive setup. Environment bootstrap applies only when the config file does not exist; it never replaces an existing login. Credentials are stored in Nicotine+’s plaintext config, and environment bootstrap also exposes them to local container administrators.
-
-The web port is published only to host loopback. TCP port 2234 is the peer listening port; forward it on your router for peer connectivity. Nicotine+’s peer listener uses TCP, so no UDP port is published. UPnP is disabled on first-run container profiles. When changing an existing profile’s peer port, change the Compose mapping to match.
-
-| Host path | Container path | Purpose |
-| --- | --- | --- |
-| `./config` | `/config` | Nicotine+ config and persisted plugin settings |
-| `./data` | `/data` | Transfer state, databases, logs, installed plugin |
-| `./downloads` | `/data/nicotine/downloads` | Completed files |
-| `./shares` | `/shares` | Read-only media to share |
-
-Set `NICOTINE_SHARES=/shares` to seed a non-empty share on first run, or add it through the Shares page. Paths always refer to the server or container. The browser cannot upload media or stream local files.
-
-The container runs without root, capabilities, or a writable root filesystem. Its entrypoint refreshes the dedicated plugin directory on startup. It preserves account settings and writes configuration with mode 0600. If startup reports a permission error, correct volume ownership rather than running the service as root.
-
-Health means the HTTP bridge is running; being disconnected from Soulseek is healthy. `docker compose stop` allows up to 30 seconds for state to save. Back up `config` and `data` before upgrading. Published image consumers should pin a release digest; this repository does not assume a GHCR owner or claim an image has been published.
-
-## Native plugin installation
-
-Build the frontend, close Nicotine+, then run:
-
-```sh
-python3 dev/scripts/install_plugin.py
-```
-
-The installer detects the Nicotine+ data and config locations, backs up an existing config as `config.pre-webgui`, and enables `nicotine_webui`. `--data-dir` and `--config` override detected paths. It refuses to install when it detects a running Nicotine+ process. Start Nicotine+, open Preferences → Plugins → Nicotine Web GUI, and copy the generated token. Open **http://127.0.0.1:8181**.
-
-The plugin supports `NICOTINE_WEBUI_HOST`, `NICOTINE_WEBUI_PORT`, `NICOTINE_WEBUI_TOKEN`, and `NICOTINE_WEBUI_TRUSTED_HOSTS`. Environment values override plugin preferences. Native defaults bind to `127.0.0.1`; the container binds internally to `0.0.0.0` with a loopback-only host mapping. Use `ssh -L 8181:127.0.0.1:8181 user@host` for access through a tunnel. LAN exposure is outside the supported deployment.
-
-## Development and checks
-
-```sh
 python3 -m unittest discover -s tests/bridge -v
 python3 -m unittest discover -s tests/container -v
 python3 dev/scripts/contracts.py --check
-cd web
-npm test
-npm run build
-npx playwright install chromium
-npm run test:e2e
 ```
 
-The HTTP tests need permission to bind temporary loopback sockets. Browser tests start their own demo bridge on port 8181; stop other instances before running them.
+Browser tests launch a UI on `http://127.0.0.1:8181` and a separate demo plugin on `https://localhost:8443`. They use a temporary self-signed certificate and disable certificate verification **only in Playwright**. Production requests use normal browser certificate validation. Stop other servers on these ports before running tests. The deterministic demo does not touch the normal user profile or connect to Soulseek.
 
-For development against the real engine, install `nicotine-plus==3.3.6` with `pip install --no-deps` in a virtual environment, then run `python dev/scripts/run_headless_dev.py`. This creates a disposable config/data directory and uses token `development-only` unless `NICOTINE_WEBUI_TOKEN` is set. It does not reuse the normal profile. The Vite development server (`cd web && npm run dev`) proxies `/api` to the bridge and rewrites Host/Origin consistently for local development.
+For manual demo use after building, run `python3 dev/remote_fixture.py`, trust its temporary test certificate in your development browser, and connect to `https://localhost:8443` using token `demo`. For frontend edits, `cd web && npm run dev` serves Vite; add its exact origin to the real plugin's allowlist and enter the plugin HTTPS URL. The frontend dev server does not proxy the API.
 
-Real integration tests use disposable offline profiles:
+Real integration checks use isolated offline profiles:
 
 ```sh
+# With nicotine-plus installed/importable in your development environment:
 python3 tests/bridge/integration_nicotine.py
-# macOS frozen app, if installed:
+# Installed frozen macOS app, if available:
 python3 tests/bridge/frozen_smoke.py
-# After building an image:
+# Built UI image:
 python3 tests/container/smoke.py nicotine-webgui:local
 ```
 
-CI covers Python 3.9/3.12 and Nicotine+ 3.3.6/3.3.11, frontend checks, browser workflows, and a container smoke test. The release workflow validates a local image before publishing multi-architecture images with SBOM and provenance on version tags or manual dispatch. No image publication is performed by local development scripts.
-
-## API and behavior
-
-The authenticated contract is served at `/api/v1/openapi.json`; [openapi.yaml](openapi.yaml), frontend route types, and domain model types are generated with `python3 dev/scripts/contracts.py`. CI checks these artifacts for drift.
-
-Login exchanges a token for an HttpOnly, SameSite=Strict cookie. Mutations require a matching Origin and `X-CSRF-Token` from `/api/v1/session`. Sessions last 12 hours and are cleared on plugin restart. Host validation rejects untrusted names; login attempts, mutations, sessions, connections, commands, and event queues are bounded. Diagnostics and settings never return the bridge token or account password.
-
-Snapshots include `instance`, `revision`, and a composite `cursor`. Pass the cursor to `/api/v1/events?cursor=…`; reconnecting clients can also use `Last-Event-ID`. Events invalidate affected resources in batches. A `resync` requires fresh snapshots. A new process has a new instance ID. Pending commands that time out are cancelled; already-running commands return 202 with a command ID and can be polled through `/api/v1/commands/{id}`. Do not automatically repeat such mutations.
-
-Messages and results are bounded in memory. Search results retain the newest 10,000 per search, up to 20 retained searches; conversations retain 500 messages across up to 100 conversations. Truncation is shown in the UI. Chat pages request bounded background backfill from the matching Nicotine+ log; lines with unrecognized timestamps are skipped, and entries received since bridge startup are excluded to avoid duplicates. History depends on Nicotine+ logging and is not a durable bridge database.
-
-Transfers use stable IDs derived from user and virtual path. Browser download destinations use Nicotine+ defaults. Administrative operations are explicit APIs; the serving plugin cannot disable/reload itself or expose its own secret-bearing settings. Other plugin settings expose numeric, boolean, and enumerated fields, excluding secret-bearing metadata. Free-form strings are edited on the host. Changes may require reloading that plugin.
-
-Shortcuts: `/` focuses search, Ctrl/Cmd+K opens navigation, Alt+1–9 switches sections, Ctrl/Cmd+Enter sends a message. Tables support sorting, column resizing, virtualization, arrow-key navigation, and Space to select a focused row. Theme, density, and resource tabs persist locally.
+`docker/bootstrap.py` and the isolated headless launcher remain development/test tooling; the production UI image does not contain them. Docker runtime, actual public reverse-proxy deployments, and live-account workflows must still pass release validation; see [the execution checklist](plan/execution.md).
 
 ## License
 
-GPL-3.0-or-later; see [LICENSE](LICENSE). This is an unofficial companion with no implied Nicotine+ endorsement. Nicotine+ is distributed under its own GPL terms.
+GPL-3.0-or-later; see [LICENSE](LICENSE). This is an unofficial companion with no implied Nicotine+ endorsement.

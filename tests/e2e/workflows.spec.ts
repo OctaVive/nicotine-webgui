@@ -2,6 +2,7 @@ import { expect, test } from '../../web/node_modules/@playwright/test';
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/');
+  await page.getByLabel('Plugin URL').fill('https://localhost:8443');
   await page.getByLabel('Access token').fill('demo');
   await page.getByRole('button', { name: 'Open workspace' }).click();
   await expect(page.getByRole('heading', { name: 'Search', exact: true })).toBeVisible();
@@ -32,11 +33,34 @@ test('room chat sends and receives text safely', async ({ page }) => {
   await expect(page.getByLabel('Message', { exact: true })).toHaveValue('');
 });
 
-test('session persists on reload and logout returns to login', async ({ page }) => {
+test('session reload, expiry, rejected origin and logout', async ({ page, context }) => {
   await page.reload();
   await expect(page.getByRole('heading', { name: 'Search', exact: true })).toBeVisible();
+  const saved = await page.evaluate(() => sessionStorage.getItem('nicotine-session')!);
+  expect(saved).not.toContain('"demo"');
+  await page.evaluate(() => {
+    const data = JSON.parse(sessionStorage.getItem('nicotine-session')!);
+    data.session_token = 'invalid-session';
+    sessionStorage.setItem('nicotine-session', JSON.stringify(data));
+  });
+  await page.reload();
+  await expect(page.getByLabel('Plugin URL')).toHaveValue('https://localhost:8443');
+  await page.evaluate(value => sessionStorage.setItem('nicotine-session', value), saved);
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Search', exact: true })).toBeVisible();
+  const rejected = await context.newPage();
+  await rejected.goto('http://localhost:8181');
+  await rejected.getByLabel('Plugin URL').fill('https://localhost:8443');
+  await rejected.getByLabel('Access token').fill('demo');
+  await rejected.getByRole('button', { name: 'Open workspace' }).click();
+  await expect(rejected.getByRole('alert')).toContainText('Cannot reach the plugin');
+  await rejected.close();
   await page.getByRole('button', { name: 'Log out' }).click();
   await expect(page.getByLabel('Access token')).toBeVisible();
+  await expect(page.getByLabel('Access token')).toHaveValue('');
+  expect(await page.evaluate(() => sessionStorage.getItem('nicotine-session'))).toBeNull();
+  const result = await context.request.get('https://localhost:8443/api/v1/session', { headers: { Origin: 'http://127.0.0.1:8181', Authorization: 'Bearer ' + JSON.parse(saved).session_token } });
+  expect(result.status()).toBe(401);
 });
 
 test('shows reconnect state and recovers when the event stream returns', async ({ page }) => {

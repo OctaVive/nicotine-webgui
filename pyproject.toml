@@ -1,7 +1,7 @@
 [project]
 name = "nicotine-webgui"
-version = "0.1.0"
-description = "Local browser companion for Nicotine+"
+version = "0.2.0"
+description = "Remote browser companion for an existing Nicotine+ client"
 requires-python = ">=3.9"
 license = "GPL-3.0-or-later"
 

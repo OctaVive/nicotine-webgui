@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { command, request, setCSRF } from './client';
+import { clearSession, command, request, setCSRF } from './client';
 
 afterEach(() => {
+  clearSession();
   vi.unstubAllGlobals();
   vi.useRealTimers();
 });
@@ -17,9 +18,11 @@ describe('API commands', () => {
       '/api/v1/away',
       expect.objectContaining({
         credentials: 'same-origin',
-        headers: expect.objectContaining({ 'X-CSRF-Token': 'csrf-value' }),
+        headers: expect.any(Headers),
+        redirect: 'error',
       }),
     );
+    expect(fetch.mock.calls[0][1].headers.get('X-CSRF-Token')).toBe('csrf-value');
   });
   it('polls a started command instead of submitting it twice', async () => {
     vi.useFakeTimers();

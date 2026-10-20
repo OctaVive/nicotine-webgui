@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install built assets and plugin while Nicotine+ is stopped."""
+"""Install the bridge on the existing Nicotine+ host while it is stopped."""
 import argparse
 import ast
 import configparser
@@ -18,6 +18,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data-dir", type=Path)
     parser.add_argument("--config", type=Path)
+    parser.add_argument("--with-ui", action="store_true", help="Also install a built SPA for native same-origin hosting")
     args = parser.parse_args()
     if sys.platform == "win32":
         default_data = Path(os.environ["APPDATA"]) / "nicotine"
@@ -40,7 +41,7 @@ def main():
                 running = True
     if running:
         raise SystemExit("Close Nicotine+ before installing; its configuration must not be edited while running.")
-    if not (ROOT / "web/dist/index.html").exists():
+    if args.with_ui and not (ROOT / "web/dist/index.html").exists():
         raise SystemExit("Build assets first: cd web && npm ci && npm run build")
     data = args.data_dir or default_data
     config = args.config or default_config
@@ -58,7 +59,8 @@ def main():
     destination = data / "plugins/nicotine_webui"
     destination.mkdir(parents=True, exist_ok=True)
     shutil.copytree(ROOT / "plugin", destination, dirs_exist_ok=True, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
-    shutil.copytree(ROOT / "web/dist", destination / "webgui/static", dirs_exist_ok=True)
+    if args.with_ui:
+        shutil.copytree(ROOT / "web/dist", destination / "webgui/static", dirs_exist_ok=True)
     config.parent.mkdir(parents=True, exist_ok=True)
     if config.exists():
         shutil.copy2(config, config.with_suffix(".pre-webgui"))

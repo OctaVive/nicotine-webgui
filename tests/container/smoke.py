@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise a built image with disposable named volumes and no Soulseek login."""
+"""Test a UI-only image without credentials, engine directories, or volumes."""
 import json
 import subprocess
 import sys
@@ -14,35 +14,27 @@ def docker(*args):
 def main():
     image = sys.argv[1] if len(sys.argv) > 1 else "nicotine-webgui:local"
     name = "nicotine-webgui-test-" + uuid4().hex[:10]
-    data, config = name + "-data", name + "-config"
     try:
-        for volume in (data, config):
-            docker("volume", "create", volume)
-        fixture = "from pathlib import Path; p=Path('/config/nicotine'); p.mkdir(parents=True,exist_ok=True); (p/'config').write_text('[server]\\nauto_connect_startup = False\\n')"
-        docker("run", "--rm", "-v", config + ":/config", "--entrypoint", "python", image, "-c", fixture)
-        args = ["run", "-d", "--name", name, "--read-only", "--tmpfs", "/tmp", "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true",
-                "-e", "NICOTINE_WEBUI_TOKEN=container-test-only", "-v", data + ":/data", "-v", config + ":/config", image]
-        docker(*args)
-        for _ in range(60):
-            result = subprocess.run(["docker", "exec", name, "python", "-c", "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8181/api/v1/health').read().decode())"], capture_output=True, text=True)
+        docker("run", "-d", "--name", name, "--read-only", "--tmpfs", "/tmp", "--network", "none",
+               "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true", image)
+        for _ in range(30):
+            result = subprocess.run(["docker", "exec", name, "python", "-c",
+                                     "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8080/health').read().decode())"], capture_output=True, text=True)
             if result.returncode == 0:
-                assert json.loads(result.stdout)["status"] == "ok"
+                assert json.loads(result.stdout)["service"] == "web-ui"
                 break
             time.sleep(1)
         else:
             raise AssertionError(docker("logs", name))
-        uid = docker("exec", name, "id", "-u")
-        assert uid != "0", uid
-        docker("exec", name, "python", "-c", "from pathlib import Path; Path('/data/restart-marker').write_text('persisted')")
-        docker("stop", "--time", "30", name)
+        assert docker("exec", name, "id", "-u") != "0"
+        mounts = json.loads(docker("inspect", "--format", "{{json .Mounts}}", name))
+        assert all(mount["Type"] == "tmpfs" and mount["Destination"] == "/tmp" for mount in mounts), mounts
+        docker("exec", name, "python", "-c", "import importlib.util; from pathlib import Path; assert importlib.util.find_spec('pynicotine') is None; assert not Path('/data').exists(); assert not Path('/config').exists(); import urllib.request; assert b'<html' in urllib.request.urlopen('http://127.0.0.1:8080/search/123').read()")
+        docker("stop", "--time", "10", name)
         assert docker("inspect", "--format", "{{.State.ExitCode}}", name) == "0"
-        docker("start", name)
-        assert docker("exec", name, "cat", "/data/restart-marker") == "persisted"
-        print("PASS: image health, non-root UID, read-only root, graceful stop, and persistent volumes")
+        print("PASS: UI-only image, no engine/volumes/credentials, non-root, read-only root, SPA fallback, graceful shutdown")
     finally:
         subprocess.run(["docker", "rm", "-f", name], capture_output=True)
-        for volume in (data, config):
-            subprocess.run(["docker", "volume", "rm", volume], capture_output=True)
 
 
 if __name__ == "__main__":

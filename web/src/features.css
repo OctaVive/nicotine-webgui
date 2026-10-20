@@ -5,6 +5,10 @@
   padding: 0 13px;
   color: #97aab2;
 }
+
+.login-card label + label {
+  margin-top: 16px;
+}
 .data-viewport:focus .focused-row {
   outline: 1px solid var(--accent);
   outline-offset: -1px;

@@ -33,7 +33,7 @@ def main():
         config.sections["server"]["auto_connect_startup"] = False
         plugin_folder = root / "data/plugins/nicotine_webui"
         shutil.copytree(ROOT / "plugin", plugin_folder)
-        config.sections["plugins"]["nicotine_webui"] = {"port": 0, "token": "integration-only"}
+        config.sections["plugins"]["nicotine_webui"] = {"port": 0, "token": "integration-only", "allowed_origins": "https://ui.example.test"}
         # Plugin settings require a nonzero port; reserve one for the isolated test.
         import socket
         with socket.socket() as sock:
@@ -52,10 +52,10 @@ def main():
 
         def exercise():
             try:
-                def request(path, method="GET", body=None, cookie="", csrf=""):
+                def request(path, method="GET", body=None, cookie="", csrf="", extra=None):
                     connection = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
                     connection.request(method, "/api/v1" + path, json.dumps(body or {}) if method != "GET" else None,
-                                       {"Origin": f"http://127.0.0.1:{port}", "Content-Type": "application/json", "Cookie": cookie, "X-CSRF-Token": csrf})
+                                       {"Origin": f"http://127.0.0.1:{port}", "Content-Type": "application/json", "Cookie": cookie, "X-CSRF-Token": csrf, **(extra or {})})
                     response = connection.getresponse()
                     value = json.loads(response.read())
                     headers, status = dict(response.getheaders()), response.status
@@ -85,6 +85,14 @@ def main():
                 for action in ("pause", "resume", "cancel", "clear"):
                     request("/downloads/actions", "POST", {"ids": [transfer_id], "action": action}, cookie, csrf)
                 request("/settings", "PATCH", {"server": {"autoaway": 10}}, cookie, csrf)
+                origin = {"Origin": "https://ui.example.test"}
+                remote, remote_headers = request("/auth/login", "POST", {"token": "integration-only", "mode": "bearer"}, extra=origin)
+                assert "Set-Cookie" not in remote_headers
+                assert remote_headers["Access-Control-Allow-Origin"] == origin["Origin"]
+                bearer = {**origin, "Authorization": "Bearer " + remote["data"]["session_token"]}
+                request("/status", extra=bearer)
+                request("/transfers/limits", "PATCH", {"downloadlimit": 4321}, csrf=remote["data"]["csrf"], extra=bearer)
+                request("/auth/logout", "POST", csrf=remote["data"]["csrf"], extra=bearer)
                 outcome.append(True)
             except Exception as error:
                 outcome.append(error)

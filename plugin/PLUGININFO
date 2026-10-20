@@ -1,4 +1,4 @@
 Name = "Nicotine Web GUI"
-Description = "Local browser interface for Nicotine+"
+Description = "Authenticated HTTP bridge for local and remote Nicotine+ Web GUIs"
 Author = "Nicotine Web GUI contributors"
-Version = "0.1.0"
+Version = "0.2.0"

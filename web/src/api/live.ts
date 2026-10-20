@@ -1,5 +1,6 @@
 import type { QueryClient } from '@tanstack/react-query';
-import { request } from './client';
+import { apiFetch, connectionGeneration, request } from './client';
+import { readSSE } from './sse';
 
 export const EVENTS = [
   'status.updated',
@@ -31,7 +32,9 @@ export const EVENTS = [
 
 export function connectLive(client: QueryClient, onState: (online: boolean) => void) {
   let closed = false;
-  let stream: EventSource | undefined;
+  const abort = new AbortController();
+  const active = connectionGeneration();
+  let cursor = '';
   let timer: ReturnType<typeof setTimeout> | undefined;
   let batch: ReturnType<typeof setTimeout> | undefined;
   const deferred = new Set<string>();
@@ -99,32 +102,38 @@ export function connectLive(client: QueryClient, onState: (online: boolean) => v
   };
   async function start() {
     try {
-      // Establish a replay cursor before refetching snapshots. Events arriving during
-      // the refetch invalidate those snapshots, and Query always reads final state.
-      const snapshot = await request('/status');
+      if (!cursor) cursor = (await request('/status')).cursor;
+      if (closed || active !== connectionGeneration()) return;
+      const response = await apiFetch('/events?cursor=' + encodeURIComponent(cursor), {
+        signal: abort.signal,
+      });
+      if (!response.ok || !response.headers.get('content-type')?.includes('text/event-stream'))
+        throw new Error('Event stream unavailable');
       if (closed) return;
-      stream = new EventSource('/api/v1/events?cursor=' + encodeURIComponent(snapshot.cursor));
-      stream.onopen = () => {
-        onState(true);
-        invalidate();
-      };
-      stream.onerror = () => {
-        onState(false);
-        // A fresh session check distinguishes a server restart from expired auth.
-        stream?.close();
-        if (!closed) timer = setTimeout(start, 2000);
-      };
-      for (const name of EVENTS) stream.addEventListener(name, invalidate);
-      stream.addEventListener('resync', invalidate);
+      onState(true);
+      invalidate();
+      await readSSE(
+        response,
+        (frame) => {
+          if (closed || active !== connectionGeneration()) return;
+          if (frame.id) cursor = frame.id;
+          if (frame.event === 'resync' || EVENTS.includes(frame.event))
+            invalidate(new MessageEvent(frame.event, { data: frame.data }));
+        },
+        abort.signal,
+      );
     } catch {
-      onState(false);
-      if (!closed) timer = setTimeout(start, 2000);
+      // Session expiry is handled by the shared API client. Keep the replay cursor
+      // across network failures; a restarted plugin responds with resync.
+    } finally {
+      if (!closed) onState(false);
+      if (!closed && active === connectionGeneration()) timer = setTimeout(start, 2000);
     }
   }
   void start();
   return () => {
     closed = true;
-    stream?.close();
+    abort.abort();
     clearTimeout(timer);
     clearTimeout(batch);
     unsubscribe();

@@ -1,5 +1,6 @@
 import time
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from . import VERSION
 from .actions import Actions
@@ -9,13 +10,23 @@ from .store import Store
 
 DEFAULTS = {"host": "127.0.0.1", "port": 8181, "token": "", "history_limit": 500,
             "result_limit": 10000, "log_limit": 2000, "search_limit": 20,
-            "conversation_limit": 100, "trusted_hosts": "localhost,127.0.0.1"}
+            "conversation_limit": 100, "trusted_hosts": "localhost,127.0.0.1", "allowed_origins": ""}
 
 
 class Bridge:
     domains = DOMAINS
 
     def __init__(self, adapter, settings, static=None):
+        for origin in settings.get("allowed_origins", "").split(","):
+            origin = origin.strip()
+            if not origin:
+                continue
+            parsed = urlsplit(origin)
+            if parsed.scheme not in {"https", "http"} or not parsed.hostname or parsed.path or parsed.query or parsed.fragment or parsed.username or parsed.password:
+                raise ValueError("Allowed origins must be exact http(s) origins without paths, credentials, or wildcards")
+            if "*" in parsed.netloc:
+                raise ValueError("Wildcard origins are not supported")
+            parsed.port  # Validate an explicitly supplied port.
         self.adapter, self.settings = adapter, settings
         self.started = time.monotonic()
         self.store = Store()

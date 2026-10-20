@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import * as Dialog from '@radix-ui/react-dialog';
-import { request, setCSRF } from '../api/client';
+import { clearSession, getEndpoint, hasSession, login, request, setCSRF } from '../api/client';
 import { connectLive } from '../api/live';
 import type { Session, Status } from '../api/models';
 import { useLayout } from '../stores/layout';
@@ -45,7 +45,10 @@ export function App() {
   const layout = useLayout();
   useEffect(() => {
     let live = true;
-    request<Session>('/session')
+    (getEndpoint() && hasSession()
+      ? request<Session>('/session')
+      : Promise.reject(new Error('Not connected'))
+    )
       .then((result) => {
         if (live) {
           setCSRF(result.data.csrf);
@@ -58,7 +61,8 @@ export function App() {
       });
     const expired = () => {
       setSession(null);
-      setCSRF('');
+      clearSession();
+      setOnline(false);
       client.clear();
     };
     window.addEventListener('session-expired', expired);
@@ -108,9 +112,11 @@ export function App() {
     return (
       <Login
         onLogin={(value) => {
+          client.clear();
+          useLayout.setState({ tabs: [] });
           setSession(value);
           setCSRF(value.csrf);
-          if (location.pathname === '/login') navigate('/search');
+          navigate('/search');
         }}
       />
     );
@@ -137,17 +143,29 @@ export function App() {
             <button
               className="quiet"
               onClick={async () => {
+                let timeout: ReturnType<typeof setTimeout> | undefined;
                 try {
-                  await request('/auth/logout', 'POST');
+                  await Promise.race([
+                    request('/auth/logout', 'POST'),
+                    new Promise((resolve) => {
+                      timeout = setTimeout(resolve, 1500);
+                    }),
+                  ]);
+                } catch {
+                  // A disconnected plugin must not prevent choosing another host.
+                } finally {
+                  clearTimeout(timeout);
+                  clearSession();
                   setSession(null);
-                  setCSRF('');
+                  setOnline(false);
                   client.clear();
-                } catch (error) {
-                  setFeedback({ message: (error as Error).message, error: true });
+                  useLayout.setState({ tabs: [] });
+                  setFeedback(null);
+                  navigate('/login');
                 }
               }}
             >
-              Log out
+              Log out / change connection
             </button>
           </div>
         </header>
@@ -259,6 +277,7 @@ export function App() {
 }
 
 function Login({ onLogin }: { onLogin: (session: Session) => void }) {
+  const [endpoint, setEndpoint] = useState(getEndpoint());
   const [token, setToken] = useState('');
   const [error, setError] = useState('');
   const [pending, setPending] = useState(false);
@@ -270,16 +289,15 @@ function Login({ onLogin }: { onLogin: (session: Session) => void }) {
         </span>
         <p className="eyebrow">YOUR SOULSEEK WORKSPACE</p>
         <h1>Welcome to Nicotine Web.</h1>
-        <p className="muted">Connect to your local client to search, transfer, and stay in touch.</p>
+        <p className="muted">Connect to your existing Nicotine+ client through its bridge plugin.</p>
         <form
           onSubmit={async (e) => {
             e.preventDefault();
             setPending(true);
             setError('');
             try {
-              const response = await request<Session>('/auth/login', 'POST', { token });
-              setCSRF(response.data.csrf);
-              const session = await request<Session>('/session');
+              const session = await login(endpoint, token);
+              setToken('');
               onLogin(session.data);
             } catch (err) {
               setError((err as Error).message);
@@ -289,10 +307,23 @@ function Login({ onLogin }: { onLogin: (session: Session) => void }) {
           }}
         >
           <label>
+            Plugin URL
+            <input
+              type="url"
+              autoFocus
+              disabled={pending}
+              autoComplete="url"
+              value={endpoint}
+              onChange={(e) => setEndpoint(e.target.value)}
+              required
+              placeholder="https://nicotine.example.com"
+            />
+          </label>
+          <label>
             Access token
             <input
               type="password"
-              autoFocus
+              disabled={pending}
               autoComplete="current-password"
               value={token}
               onChange={(e) => setToken(e.target.value)}
@@ -309,7 +340,10 @@ function Login({ onLogin }: { onLogin: (session: Session) => void }) {
             {pending ? 'Connecting…' : 'Open workspace →'}
           </button>
         </form>
-        <small>Find your token in plugin preferences or your container’s WEBUI_TOKEN.</small>
+        <small>
+          Find the access token in the plugin preferences on your Nicotine+ host. That plugin must allow this
+          Web GUI’s origin: {window.location.origin}.
+        </small>
       </div>
     </div>
   );

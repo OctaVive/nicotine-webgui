@@ -46,7 +46,7 @@ class HTTPTests(unittest.TestCase):
         content = response.read()
         status, result_headers = response.status, dict(response.getheaders())
         connection.close()
-        value = json.loads(content) if "application/json" in result_headers.get("Content-Type", "") else content.decode()
+        value = json.loads(content) if content and "application/json" in result_headers.get("Content-Type", "") else content.decode()
         return status, value, result_headers
 
     def login(self):
@@ -111,7 +111,7 @@ class HTTPTests(unittest.TestCase):
         connection.request("GET", "/api/v1/events?cursor=" + snapshot["cursor"], headers={"Cookie": self.cookie})
         response = connection.getresponse()
         self.assertEqual(response.status, 200)
-        lines = [response.readline().decode() for _ in range(4)]
+        lines = [response.readline().decode() for _ in range(6)]
         self.assertIn("event: connection.changed\n", lines)
         response.close()
         connection.close()
@@ -132,6 +132,56 @@ class HTTPTests(unittest.TestCase):
         self.assertEqual(self.call("/api/v1/users/alice/downloads", "POST", {"ids": ["demo-file"]})[0], 200)
         self.assertEqual(self.call("/api/v1/downloads")[1]["data"][0]["virtual_path"], "Music\\Example.flac")
         self.assertEqual(self.call("/api/v1/users/alice/downloads", "POST", {"ids": ["expired"]})[0], 409)
+
+    def test_cross_origin_bearer_session_preflight_and_revocation(self):
+        origin = "https://ui.example.com"
+        self.bridge.settings["allowed_origins"] = origin
+        headers = {"Origin": origin}
+        status, _, cors = self.call("/api/v1/auth/login", "OPTIONS", headers={**headers, "Access-Control-Request-Method": "POST", "Access-Control-Request-Headers": "authorization,content-type,x-csrf-token"})
+        self.assertEqual(status, 204)
+        self.assertEqual(cors["Access-Control-Allow-Origin"], origin)
+        self.assertNotIn("Access-Control-Allow-Credentials", cors)
+        status, response, cors = self.call("/api/v1/auth/login", "POST", {"token": "test-token", "mode": "bearer"}, headers)
+        self.assertEqual(status, 200)
+        self.assertNotIn("Set-Cookie", cors)
+        sid = response["data"]["session_token"]
+        self.csrf = response["data"]["csrf"]
+        headers["Authorization"] = "Bearer " + sid
+        self.assertEqual(self.call("/api/v1/session", headers=headers)[0], 200)
+        self.assertEqual(self.call("/api/v1/away", "POST", {"away": True}, headers)[0], 200)
+        self.assertEqual(self.call("/api/v1/away", "POST", {"away": True}, {**headers, "X-CSRF-Token": "bad"})[0], 403)
+        self.cookie = "npw_session=" + sid
+        self.assertEqual(self.call("/api/v1/session")[0], 401)
+        self.assertEqual(self.call("/api/v1/auth/logout", "POST", headers=headers)[0], 200)
+        status, _, cors = self.call("/api/v1/session", headers=headers)
+        self.assertEqual(status, 401)
+        self.assertEqual(cors["Access-Control-Allow-Origin"], origin)
+
+    def test_disallowed_origins_and_preflight_headers(self):
+        self.bridge.settings["allowed_origins"] = "https://ui.example.com"
+        for origin in ("null", "https://ui.example.com.evil", "https://evil.example.com"):
+            status, _, headers = self.call("/api/v1/health", headers={"Origin": origin})
+            self.assertEqual(status, 403)
+            self.assertNotIn("Access-Control-Allow-Origin", headers)
+        status, _, _ = self.call("/api/v1/session", "OPTIONS", headers={"Origin": "https://ui.example.com", "Access-Control-Request-Method": "GET", "Access-Control-Request-Headers": "x-unexpected"})
+        self.assertEqual(status, 403)
+
+    def test_bearer_events_and_expiry(self):
+        origin = "https://ui.example.com"
+        self.bridge.settings["allowed_origins"] = origin
+        _, login, _ = self.call("/api/v1/auth/login", "POST", {"token": "test-token", "mode": "bearer"}, {"Origin": origin})
+        sid = login["data"]["session_token"]
+        self.bridge.store.publish("status.updated", {"resource": "status"})
+        connection = http.client.HTTPConnection("127.0.0.1", self.port, timeout=3)
+        connection.request("GET", "/api/v1/events?cursor=" + login["cursor"], headers={"Origin": origin, "Authorization": "Bearer " + sid})
+        response = connection.getresponse()
+        self.assertEqual(response.status, 200)
+        self.assertEqual(response.getheader("Access-Control-Allow-Origin"), origin)
+        lines = [response.readline().decode() for _ in range(6)]
+        self.assertIn("event: status.updated\n", lines)
+        response.close(); connection.close()
+        self.bridge.auth.sessions[sid]["expires"] = 0
+        self.assertEqual(self.call("/api/v1/session", headers={"Origin": origin, "Authorization": "Bearer " + sid})[0], 401)
 
 
 if __name__ == "__main__":

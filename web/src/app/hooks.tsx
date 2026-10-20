@@ -1,6 +1,6 @@
 import { createContext, useContext } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { command } from '../api/client';
+import { command, connectionGeneration } from '../api/client';
 
 export function useAPI<T>(path: string) {
   return useQuery({ queryKey: ['api', path], queryFn: () => command<T>(path, 'GET') });
@@ -10,12 +10,14 @@ export function useAction() {
   const client = useQueryClient();
   const notify = useContext(Feedback);
   return async <T,>(path: string, method = 'POST', body?: unknown): Promise<T | undefined> => {
+    const active = connectionGeneration();
     try {
       const data = await command<T>(path, method, body);
+      if (active !== connectionGeneration()) throw new DOMException('Connection changed', 'AbortError');
       await client.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'api' });
       return data;
     } catch (error) {
-      notify((error as Error).message, true);
+      if ((error as Error).name !== 'AbortError') notify((error as Error).message, true);
       throw error;
     }
   };

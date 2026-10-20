@@ -110,13 +110,22 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=8181)
     parser.add_argument("--token", default="demo")
+    parser.add_argument("--allowed-origins", default="")
+    parser.add_argument("--cert")
+    parser.add_argument("--key")
     args = parser.parse_args()
     adapter = FakeAdapter()
-    bridge = Bridge(adapter, {**DEFAULTS, "port": args.port, "token": args.token}, Path(__file__).resolve().parents[1] / "web/dist")
+    bridge = Bridge(adapter, {**DEFAULTS, "port": args.port, "token": args.token, "allowed_origins": args.allowed_origins}, Path(__file__).resolve().parents[1] / "web/dist")
+    if bool(args.cert) != bool(args.key):
+        parser.error("--cert and --key must be supplied together")
+    if args.cert:
+        import ssl
+        bridge.tls_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        bridge.tls_context.load_cert_chain(args.cert, args.key)
     adapter.bridge = bridge
     bridge.start()
     bridge.ingest.message("room", "music", "alice", "Welcome! What are you listening to today?")
-    print(f"Demo bridge: http://127.0.0.1:{args.port} (token supplied by --token; default: demo)", flush=True)
+    print(f"Demo bridge: {'https' if args.cert else 'http'}://127.0.0.1:{args.port} (token supplied by --token; default: demo)", flush=True)
     try:
         while True:
             adapter.tick()

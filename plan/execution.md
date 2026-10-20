@@ -1,5 +1,7 @@
 # Execution checklist
 
+> Current deployment: the Web GUI is a static-only container; the browser connects directly to the existing Nicotine+ plugin over HTTPS. The earlier bundled-engine deployment checklist below is historical. Current changes and validation are recorded in `remote-webgui.md`.
+
 This file breaks down the design into implementation units and records validation separately from code completion. The original design remains in `nicotine-webgui.md`; its estimates and environmental claims are not release guarantees.
 
 ## 1. Compatibility spike

@@ -1,5 +1,6 @@
 """OpenAPI 3.1 contract. JSON is also a valid YAML representation."""
 from .router import ROUTES
+from . import VERSION
 
 
 def obj(properties, required=None):
@@ -18,6 +19,7 @@ MODELS = {
                    "download_speed": NUMBER, "upload_speed": NUMBER}),
     "Session": obj({"csrf": STRING, "expires": NUMBER, "capabilities": {"type": "array", "items": STRING},
                     "version": STRING, "nicotine_version": STRING}),
+    "LoginResult": obj({"csrf": STRING, "expires": NUMBER, "session_token": STRING}, ["csrf", "expires"]),
     "FileRow": obj(FILE_PROPERTIES, ["id", "username", "virtual_path", "size"]),
     "Transfer": obj({**FILE_PROPERTIES, "status": STRING, "current_byte_offset": NUMBER,
                      "time_left": NUMBER, "queue_position": NUMBER},
@@ -58,7 +60,7 @@ def specification():
                                    "400": {"description": "Invalid input"}, "401": {"description": "Authentication required"},
                                    "403": {"description": "Forbidden"}, "409": {"description": "State conflict"},
                                    "429": {"description": "Rate limited"}, "503": {"description": "Busy or unavailable"}},
-                     "security": [{"session": []}]}
+                     "security": [{"session": []}, {"bearerSession": []}]}
         if "{name}" in path:
             operation["parameters"] = [{"name": "name", "in": "path", "required": True, "schema": {"type": "string"}}]
         if method != "GET":
@@ -66,7 +68,8 @@ def specification():
             operation.setdefault("parameters", []).append({"name": "X-CSRF-Token", "in": "header", "required": path != "/auth/login", "schema": {"type": "string"}})
             schema = {"type": "object"}
             if path == "/auth/login":
-                schema = {"type": "object", "required": ["token"], "properties": {"token": {"type": "string"}}}
+                schema = {"type": "object", "required": ["token"], "properties": {"token": {"type": "string"}, "mode": {"enum": ["cookie", "bearer"], "default": "cookie"}}}
+                operation["responses"]["200"]["content"]["application/json"]["schema"] = {"allOf": [ref("Envelope"), {"properties": {"data": ref("LoginResult")}}]}
             if path == "/searches" and method == "POST":
                 schema = {"$ref": "#/components/schemas/SearchInput"}
             if path.endswith("/messages"):
@@ -82,9 +85,9 @@ def specification():
             operation["responses"]["200"]["content"]["application/json"]["schema"] = {
                 "allOf": [ref("Envelope"), {"properties": {"data": RESPONSES[path]}}]}
         paths[path] = {**paths.get(path, {}), method.lower(): operation}
-    result = {"openapi": "3.1.0", "info": {"title": "Nicotine Web GUI", "version": "0.1.0"},
+    result = {"openapi": "3.1.0", "info": {"title": "Nicotine Web GUI", "version": VERSION},
             "servers": [{"url": "/api/v1"}], "paths": paths,
-            "components": {"securitySchemes": {"session": {"type": "apiKey", "in": "cookie", "name": "npw_session"}},
+            "components": {"securitySchemes": {"session": {"type": "apiKey", "in": "cookie", "name": "npw_session"}, "bearerSession": {"type": "http", "scheme": "bearer", "description": "Temporary session from POST /auth/login with mode=bearer; mutations also require X-CSRF-Token"}},
                            "schemas": {
                                "Envelope": {"type": "object", "required": ["ok", "data", "revision", "instance", "cursor"], "properties": {
                                    "ok": {"const": True}, "data": {}, "revision": {"type": "integer"}, "instance": {"type": "string"}, "cursor": {"type": "string"}}},
