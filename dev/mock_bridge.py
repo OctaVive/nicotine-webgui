@@ -108,7 +108,7 @@ class FakeAdapter:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--port", type=int, default=8181)
+    parser.add_argument("--port", type=int, default=8180)
     parser.add_argument("--token", default="demo")
     parser.add_argument("--allowed-origins", default="")
     parser.add_argument("--cert")

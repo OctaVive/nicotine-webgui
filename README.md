@@ -36,13 +36,15 @@ Supports Nicotine+ 3.3.6–3.3.x. Run this step **on the Nicotine+ machine**, as
    | `allowed_origins` | `https://music.example.com` | Exact origin of the browser Web GUI |
    | `token` | generated automatically | Access token entered in the browser |
 
-   Restart/reload the plugin after changing connection settings. Multiple allowed origins are comma-separated. Origins include the scheme and nonstandard port, with **no path or trailing slash**. Wildcards are not accepted. For a locally opened UI, the origin might be `http://127.0.0.1:8181` instead.
+   Restart/reload the plugin after changing connection settings. Multiple allowed origins are comma-separated. Origins include the scheme and nonstandard port, with **no path or trailing slash**. Wildcards are not accepted. For a locally opened UI, the origin might be `http://127.0.0.1:8180` instead.
 
 Headless users can supply `NICOTINE_WEBUI_HOST`, `NICOTINE_WEBUI_PORT`, `NICOTINE_WEBUI_TOKEN`, `NICOTINE_WEBUI_TRUSTED_HOSTS`, and `NICOTINE_WEBUI_ALLOWED_ORIGINS` in the existing Nicotine+ process environment. These override persisted plugin settings. These are settings for the **Nicotine+ process**, not the Web GUI container.
 
 ## 2. Give the plugin an HTTPS endpoint
 
-The browser must be able to reach the plugin over HTTPS with a valid certificate. Terminate TLS at an existing reverse proxy on the Nicotine+ host and forward to the local plugin. For example, inside an Nginx HTTPS server for `nicotine.example.com`:
+For a remote connection, the browser must be able to reach the plugin over HTTPS with a valid certificate. For a local-only setup, open the GUI at `http://127.0.0.1:8180`, enter plugin URL `http://127.0.0.1:8181`, and set the plugin's `allowed_origins` to `http://127.0.0.1:8180`. No HTTPS proxy is needed when both the HTTP GUI and plugin are on loopback (`127.0.0.1`, `localhost`, or `::1`). The plugin must run on the browser's own computer; loopback does not point to a remote server. An HTTPS GUI cannot use this local HTTP exception.
+
+For remote access, terminate TLS at an existing reverse proxy on the Nicotine+ host and forward to the local plugin. For example, inside an Nginx HTTPS server for `nicotine.example.com`:
 
 ```nginx
 # The containing server block supplies your TLS certificate and key.
@@ -78,15 +80,17 @@ Then enter `https://nicotine.example.com/nicotine` in the connection screen. Use
 ## 3. Run the Web GUI container on its own server
 
 ```sh
-# Optional; all values already have defaults in Compose.
-cp .env.example .env
-
 docker compose up -d --build webui
 ```
 
-Open **http://127.0.0.1:8181**, or expose it through your Web GUI server's HTTPS reverse proxy, such as **https://music.example.com**. For LAN publishing without a local proxy, change `WEBUI_BIND_ADDRESS` in `.env`; the default `127.0.0.1` keeps the host port local.
+Open **http://127.0.0.1:8180**, or expose it through your Web GUI server's HTTPS reverse proxy, such as **https://music.example.com**. For LAN publishing without a local proxy, change `WEBUI_BIND_ADDRESS` in `.env`; the default `127.0.0.1` keeps the host port local.
 
-If the UI and plugin run on the same host, choose a different host port for the UI, such as `WEBUI_PORT=8180`, so it does not conflict with the plugin's port 8181.
+The UI defaults to host port **8180** and the plugin to **8181**, so they can run on the same machine without a port conflict. Optional `.env` overrides (Compose already supplies these defaults):
+
+```env
+WEBUI_BIND_ADDRESS=127.0.0.1
+WEBUI_PORT=8180
+```
 
 Enter:
 
@@ -112,7 +116,7 @@ This stops containers belonging to this Compose project. Leave your separately m
 
 Remote login exchanges the long-lived plugin access token for a temporary bearer session and CSRF token. The access token is discarded after login, never embedded in the UI image, and never saved in browser storage. The selected endpoint is saved in local storage. The temporary session is saved only in tab-scoped session storage so reloads work. Sessions expire after 12 hours or plugin restart; reconnect with the access token then.
 
-API requests omit cookies and use `Authorization: Bearer …`; mutations also require `X-CSRF-Token`. Cross-origin preflight is supported only for configured origins, methods, and headers. Native cookie authentication remains available for existing same-origin API clients. Install with `--with-ui` after building the SPA to retain optional native UI hosting; same-origin HTTP is allowed only for that local compatibility case.
+API requests omit cookies and use `Authorization: Bearer …`; mutations also require `X-CSRF-Token`. Cross-origin preflight is supported only for configured origins, methods, and headers, including local loopback connections. Native cookie authentication remains available for existing same-origin API clients. Install with `--with-ui` after building the SPA to retain optional native UI hosting; same-origin HTTP also remains available for that compatibility case.
 
 When optionally hosting the native UI behind HTTPS, include that page's origin in `allowed_origins` too.
 
@@ -139,13 +143,16 @@ npm run build
 npm test
 npx playwright install chromium
 npm run test:e2e
+npm run test:ui
 cd ..
 python3 -m unittest discover -s tests/bridge -v
 python3 -m unittest discover -s tests/container -v
 python3 dev/scripts/contracts.py --check
 ```
 
-Browser tests launch a UI on `http://127.0.0.1:8181` and a separate demo plugin on `https://localhost:8443`. They use a temporary self-signed certificate and disable certificate verification **only in Playwright**. Production requests use normal browser certificate validation. Stop other servers on these ports before running tests. The deterministic demo does not touch the normal user profile or connect to Soulseek.
+Browser tests launch a UI on `http://127.0.0.1:8180` and a separate demo plugin on `https://localhost:8443`. They use a temporary self-signed certificate and disable certificate verification **only in Playwright**. Production requests use normal browser certificate validation. Stop other servers on these ports before running tests. The deterministic demo does not touch the normal user profile or connect to Soulseek.
+
+`npm run test:ui` runs standalone presentation checks on port 4173 with mocked API responses: desktop/mobile layouts, light/dark themes, compact tables, navigation, and status bar placement. No Nicotine+ host is required.
 
 For manual demo use after building, run `python3 dev/remote_fixture.py`, trust its temporary test certificate in your development browser, and connect to `https://localhost:8443` using token `demo`. For frontend edits, `cd web && npm run dev` serves Vite; add its exact origin to the real plugin's allowlist and enter the plugin HTTPS URL. The frontend dev server does not proxy the API.
 

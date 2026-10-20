@@ -25,7 +25,7 @@ export function DataTable<T extends { id: string }>({
   const [sorting, setSorting] = useState<SortingState>([]);
   const [focus, setFocus] = useState(0);
   const density = useLayout((s) => s.density);
-  const rowHeight = density === 'compact' ? 38 : 46;
+  const rowHeight = density === 'compact' ? 28 : 36;
   const definitions = useMemo(
     () =>
       onSelect

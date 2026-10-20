@@ -6,7 +6,7 @@ services:
       context: .
     restart: unless-stopped
     ports:
-      - "${WEBUI_BIND_ADDRESS:-127.0.0.1}:${WEBUI_PORT:-8181}:8080"
+      - "${WEBUI_BIND_ADDRESS:-127.0.0.1}:${WEBUI_PORT:-8180}:8080"
     read_only: true
     tmpfs:
       - /tmp

@@ -49,7 +49,7 @@ test('session reload, expiry, rejected origin and logout', async ({ page, contex
   await page.reload();
   await expect(page.getByRole('heading', { name: 'Search', exact: true })).toBeVisible();
   const rejected = await context.newPage();
-  await rejected.goto('http://localhost:8181');
+  await rejected.goto('http://localhost:8180');
   await rejected.getByLabel('Plugin URL').fill('https://localhost:8443');
   await rejected.getByLabel('Access token').fill('demo');
   await rejected.getByRole('button', { name: 'Open workspace' }).click();
@@ -59,7 +59,7 @@ test('session reload, expiry, rejected origin and logout', async ({ page, contex
   await expect(page.getByLabel('Access token')).toBeVisible();
   await expect(page.getByLabel('Access token')).toHaveValue('');
   expect(await page.evaluate(() => sessionStorage.getItem('nicotine-session'))).toBeNull();
-  const result = await context.request.get('https://localhost:8443/api/v1/session', { headers: { Origin: 'http://127.0.0.1:8181', Authorization: 'Bearer ' + JSON.parse(saved).session_token } });
+  const result = await context.request.get('https://localhost:8443/api/v1/session', { headers: { Origin: 'http://127.0.0.1:8180', Authorization: 'Bearer ' + JSON.parse(saved).session_token } });
   expect(result.status()).toBe(401);
 });
 

@@ -6,6 +6,7 @@ import { clearSession, getEndpoint, hasSession, login, request, setCSRF } from '
 import { connectLive } from '../api/live';
 import type { Session, Status } from '../api/models';
 import { useLayout } from '../stores/layout';
+import { Icon } from '../components/Icon';
 import { Feedback, bytes, useAction, useAPI } from './hooks';
 import { SearchPage, TransfersPage } from '../features/transfers';
 import { ChatPage } from '../features/chat';
@@ -19,18 +20,18 @@ import {
 } from '../features/extras';
 
 const NAV = [
-  ['/search', '⌕', 'Search'],
-  ['/downloads', '↓', 'Downloads'],
-  ['/uploads', '↑', 'Uploads'],
-  ['/rooms', '◫', 'Rooms'],
-  ['/private', '✉', 'Private chat'],
-  ['/buddies', '♧', 'Buddies'],
-  ['/browse', '▤', 'Browse'],
-  ['/interests', '◇', 'Discovery'],
-  ['/shares', '▧', 'Shares'],
-  ['/plugins', '⊞', 'Plugins'],
-  ['/stats', '▥', 'Statistics'],
-  ['/settings', '⚙', 'Settings'],
+  ['/search', 'Search'],
+  ['/downloads', 'Downloads'],
+  ['/uploads', 'Uploads'],
+  ['/rooms', 'Rooms'],
+  ['/private', 'Private chat'],
+  ['/buddies', 'Buddies'],
+  ['/browse', 'Browse'],
+  ['/interests', 'Discovery'],
+  ['/shares', 'Shares'],
+  ['/plugins', 'Plugins'],
+  ['/stats', 'Statistics'],
+  ['/settings', 'Settings'],
 ];
 
 export function App() {
@@ -129,16 +130,18 @@ export function App() {
               n<span>+</span>
             </span>
             <span>
-              nicotine<span className="muted"> / web</span>
+              Nicotine+ <span className="brand-subtitle">Web</span>
             </span>
           </Link>
           <div className="top-actions">
             <button className="quiet" onClick={() => setPalette(true)}>
               Jump to… <kbd>⌘ K</kbd>
             </button>
-            <StatusBar />
             <Link to="/notifications" aria-label="Notifications">
-              ♧
+              <Icon name="notifications" />
+            </Link>
+            <Link className="button quiet preferences-link" to="/settings">
+              <Icon name="settings" /> Preferences
             </Link>
             <button
               className="quiet"
@@ -169,25 +172,16 @@ export function App() {
             </button>
           </div>
         </header>
-        <aside className="sidebar">
-          <div className="sidebar-label">WORKSPACE</div>
-          <nav>
-            {NAV.map(([path, icon, label], i) => (
-              <NavLink key={path} to={path}>
-                <span className="nav-icon">{icon}</span>
-                {label}
-                <kbd>{i < 9 ? i + 1 : ''}</kbd>
+        <div className="primary-tabs">
+          <nav aria-label="Main sections">
+            {NAV.map(([path, label], i) => (
+              <NavLink key={path} to={path} title={label + (i < 9 ? ` (Alt+${i + 1})` : '')}>
+                <Icon name={path.slice(1)} />
+                <span>{label}</span>
               </NavLink>
             ))}
           </nav>
-          <div className="sidebar-bottom">
-            <span className={'dot ' + (online ? 'green' : 'amber')} />
-            {online ? 'Live bridge' : 'Reconnecting…'}
-            <small>
-              v{session.version} · Nicotine+ {session.nicotine_version}
-            </small>
-          </div>
-        </aside>
+        </div>
         <main>
           {!online && (
             <div className="banner" role="status">
@@ -243,10 +237,15 @@ export function App() {
           </Routes>
         </main>
         <footer>
-          <span>LOCAL COMPANION</span>
-          <span>
-            Files stay on your Nicotine+ host · <Link to="/logs">View logs</Link>
-          </span>
+          <StatusBar />
+          <div
+            className="bridge-status"
+            title={`Web bridge v${session.version} · Nicotine+ ${session.nicotine_version}`}
+          >
+            <span className={'dot ' + (online ? 'green' : 'amber')} />
+            <span>{online ? 'Live bridge' : 'Reconnecting…'}</span>
+            <Link to="/logs">View logs</Link>
+          </div>
         </footer>
       </div>
       <Dialog.Root open={palette} onOpenChange={setPalette}>
@@ -257,7 +256,7 @@ export function App() {
             <Dialog.Description>
               Choose a section. Alt + 1–9 switches the first nine sections.
             </Dialog.Description>
-            {NAV.map(([path, icon, label]) => (
+            {NAV.map(([path, label]) => (
               <button
                 key={path}
                 onClick={() => {
@@ -265,7 +264,7 @@ export function App() {
                   setPalette(false);
                 }}
               >
-                {icon} {label}
+                <Icon name={path.slice(1)} /> {label}
               </button>
             ))}
             <Dialog.Close>Close</Dialog.Close>
@@ -287,9 +286,12 @@ function Login({ onLogin }: { onLogin: (session: Session) => void }) {
         <span className="brand-mark">
           n<span>+</span>
         </span>
-        <p className="eyebrow">YOUR SOULSEEK WORKSPACE</p>
-        <h1>Welcome to Nicotine Web.</h1>
+        <p className="eyebrow">Nicotine+ Web</p>
+        <h1>Connect to Nicotine+</h1>
         <p className="muted">Connect to your existing Nicotine+ client through its bridge plugin.</p>
+        <p className="connection-help">
+          On this computer, use http://127.0.0.1:8181 from a local HTTP GUI. Remote plugins require HTTPS.
+        </p>
         <form
           onSubmit={async (e) => {
             e.preventDefault();

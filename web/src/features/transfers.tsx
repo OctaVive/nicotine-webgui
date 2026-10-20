@@ -8,21 +8,21 @@ import { bytes, Loading, useAction, useAPI } from '../app/hooks';
 export const fileColumns: ColumnDef<FileRow, any>[] = [
   {
     accessorKey: 'virtual_path',
-    header: 'FILE / FOLDER',
+    header: 'File / Folder',
     size: 480,
     cell: ({ getValue }) => <span title={getValue()}>{getValue()}</span>,
   },
-  { accessorKey: 'size', header: 'SIZE', size: 110, cell: ({ getValue }) => bytes(getValue()) },
+  { accessorKey: 'size', header: 'Size', size: 110, cell: ({ getValue }) => bytes(getValue()) },
   {
     accessorKey: 'username',
-    header: 'USER',
+    header: 'User',
     size: 150,
     cell: ({ getValue }) => <Link to={'/users/' + encodeURIComponent(getValue())}>{getValue()}</Link>,
   },
-  { accessorKey: 'speed', header: 'SPEED', size: 120, cell: ({ getValue }) => bytes(getValue()) + '/s' },
+  { accessorKey: 'speed', header: 'Speed', size: 120, cell: ({ getValue }) => bytes(getValue()) + '/s' },
   {
     accessorKey: 'bitrate',
-    header: 'BITRATE',
+    header: 'Bitrate',
     size: 100,
     cell: ({ getValue }) => (getValue() ? getValue() + ' kbps' : '—'),
   },
@@ -53,9 +53,7 @@ export function SearchPage() {
     <section>
       <div className="page-heading">
         <div>
-          <p className="eyebrow">DISCOVER SOMETHING GOOD</p>
           <h1>Search</h1>
-          <p className="muted">Explore files shared by the Soulseek community.</p>
         </div>
         <span className="pill">{searches.data?.length ?? 0} open searches</span>
       </div>
@@ -85,7 +83,7 @@ export function SearchPage() {
         <input
           name="search"
           aria-label="Search term"
-          placeholder="Artist, album, or something new…"
+          placeholder="Search files…"
           value={term}
           onChange={(e) => setTerm(e.target.value)}
           required
@@ -133,8 +131,8 @@ export function SearchPage() {
       {!token ? (
         <div className="welcome panel">
           <span className="large-icon">⌕</span>
-          <h2>A world of music, one search away.</h2>
-          <p className="muted">Start a search above. Results arrive live as peers respond.</p>
+          <h2>Search files on Soulseek</h2>
+          <p className="muted">Enter a search term above to find files shared by other users.</p>
           <div className="hint">
             Tip <kbd>/</kbd> focuses search from anywhere.
           </div>

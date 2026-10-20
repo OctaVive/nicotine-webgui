@@ -2,6 +2,7 @@ import type { Envelope } from './types.gen';
 
 const ENDPOINT_KEY = 'nicotine-endpoint';
 const SESSION_KEY = 'nicotine-session';
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 let endpoint = '';
 let csrf = '';
 let sessionToken = '';
@@ -18,8 +19,15 @@ function storage(kind: 'localStorage' | 'sessionStorage'): Storage | undefined {
 export function normalizeEndpoint(value: string): string {
   const url = new URL(value.trim());
   const sameOrigin = typeof window !== 'undefined' && url.origin === window.location.origin;
-  if (url.protocol !== 'https:' && !(url.protocol === 'http:' && sameOrigin)) {
-    throw new Error('Use the plugin’s HTTPS URL. HTTP is supported only for the same-origin native UI.');
+  const localHTTP =
+    typeof window !== 'undefined' &&
+    window.location.protocol === 'http:' &&
+    LOOPBACK_HOSTS.has(window.location.hostname) &&
+    LOOPBACK_HOSTS.has(url.hostname);
+  if (url.protocol !== 'https:' && !(url.protocol === 'http:' && (sameOrigin || localHTTP))) {
+    throw new Error(
+      'Use HTTPS for remote plugins. HTTP is supported only between a local HTTP GUI and a loopback plugin, or for the same-origin native UI.',
+    );
   }
   if (url.username || url.password || url.search || url.hash)
     throw new Error('Plugin URL must not contain credentials, a query, or a fragment.');
@@ -112,7 +120,7 @@ export async function apiFetch(path: string, init: RequestInit = {}): Promise<Re
   } catch (error) {
     if (signal.aborted || (error as Error).name === 'AbortError') throw error;
     throw new Error(
-      'Cannot reach the plugin. Check its HTTPS URL, certificate, allowed Web GUI origin, and any reverse-proxy redirects.',
+      'Cannot reach the plugin. Check its URL, allowed Web GUI origin, and any reverse-proxy redirects. Remote plugins require HTTPS with a valid certificate.',
     );
   }
   if (active !== generation) throw new DOMException('Connection changed', 'AbortError');

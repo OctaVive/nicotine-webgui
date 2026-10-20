@@ -23,6 +23,8 @@ def main():
     if sys.platform == "win32":
         default_data = Path(os.environ["APPDATA"]) / "nicotine"
         default_config = default_data / "config"
+        if not default_config.is_file():
+            default_config = default_config / "config"
         processes = subprocess.check_output(["tasklist", "/FO", "CSV"], text=True).lower()
         running = "nicotine.exe" in processes
     else:
@@ -45,8 +47,12 @@ def main():
         raise SystemExit("Build assets first: cd web && npm ci && npm run build")
     data = args.data_dir or default_data
     config = args.config or default_config
+    if config.is_dir():
+        raise SystemExit(f"Configuration path is a directory: {config}. Use --config with the configuration file, not its folder.")
     cfg = configparser.ConfigParser(interpolation=None)
-    cfg.read(config, encoding="utf-8")
+    if config.exists():
+        with config.open(encoding="utf-8") as handle:
+            cfg.read_file(handle)
     if not cfg.has_section("plugins"):
         cfg.add_section("plugins")
     enabled = ast.literal_eval(cfg.get("plugins", "enabled", fallback="[]"))

@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "test": "vitest run",
     "test:e2e": "playwright test",
+    "test:ui": "playwright test --config playwright.ui.config.ts",
     "format": "prettier --write src vite.config.ts playwright.config.ts",
     "format:check": "prettier --check src vite.config.ts playwright.config.ts"
   },

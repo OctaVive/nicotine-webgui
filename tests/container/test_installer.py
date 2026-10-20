@@ -1,4 +1,5 @@
 import configparser
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -10,6 +11,33 @@ from dev.scripts import install_plugin
 
 
 class InstallerTests(unittest.TestCase):
+    def test_windows_detects_nested_config_and_preserves_account(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "plugin").mkdir()
+            (root / "plugin/__init__.py").write_text("# fixture")
+            config = root / "nicotine/config/config"
+            config.parent.mkdir(parents=True)
+            original = "[server]\nlogin = existing\npassw = unchanged\n"
+            config.write_text(original)
+            with patch.object(install_plugin, "ROOT", root), patch.object(sys, "platform", "win32"), patch.dict(os.environ, {"APPDATA": str(root)}), patch.object(sys, "argv", ["install"]), patch.object(install_plugin.subprocess, "check_output", return_value=""):
+                install_plugin.main()
+            cfg = configparser.ConfigParser(interpolation=None)
+            cfg.read(config)
+            self.assertEqual(cfg["server"]["login"], "existing")
+            self.assertEqual(cfg["server"]["passw"], "unchanged")
+            self.assertIn("nicotine_webui", cfg["plugins"]["enabled"])
+            self.assertEqual(config.with_suffix(".pre-webgui").read_text(), original)
+            self.assertTrue((root / "nicotine/plugins/nicotine_webui/__init__.py").exists())
+
+    def test_directory_config_is_rejected_before_installing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with patch.object(sys, "platform", "win32"), patch.dict(os.environ, {"APPDATA": str(root)}), patch.object(sys, "argv", ["install", "--config", str(root), "--data-dir", str(root / "data")]), patch.object(install_plugin.subprocess, "check_output", return_value=""):
+                with self.assertRaisesRegex(SystemExit, "path is a directory"):
+                    install_plugin.main()
+            self.assertFalse((root / "data").exists())
+
     def test_refuses_running_python_engine_before_writing(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
