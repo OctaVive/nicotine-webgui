@@ -1,0 +1,4 @@
+Name = "Nicotine Web GUI"
+Description = "Local browser interface for Nicotine+"
+Author = "Nicotine Web GUI contributors"
+Version = "0.1.0"

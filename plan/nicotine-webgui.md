@@ -1,9 +1,9 @@
 # Nicotine Web GUI — Design and Implementation Plan
 
-Status: Draft for implementation
+Status: Initial implementation in repository; validation tracked in `plan/execution.md`
 Date: 2026-10-20
 Target: Nicotine+ 3.3.x (verified against 3.3.6)
-Repository: `/Users/mitchel/dev/nicotine-webgui` (currently empty)
+Repository: `/Users/mitchel/dev/nicotine-webgui`
 
 ---
 

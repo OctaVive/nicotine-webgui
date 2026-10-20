@@ -1,0 +1,101 @@
+.column-label {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  padding: 0 13px;
+  color: #97aab2;
+}
+.data-viewport:focus .focused-row {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+.browse-layout {
+  display: flex;
+  min-width: 0;
+}
+.browse-layout > .data-viewport {
+  flex: 1;
+  min-width: 0;
+}
+.folder-tree {
+  width: 210px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border);
+  overflow: auto;
+  max-height: 56vh;
+  padding: 10px 0;
+  background: #142025;
+}
+.folder-tree > button {
+  margin: 0 10px 12px;
+}
+.folder-row {
+  display: flex;
+  align-items: center;
+  white-space: nowrap;
+  font-size: 11px;
+}
+.folder-row > button {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 9px 3px;
+  color: var(--muted);
+}
+.folder-row.active {
+  background: #244338;
+}
+.folder-row.active > button {
+  color: var(--accent);
+}
+.folder-row > button:first-child {
+  width: 20px;
+  flex-shrink: 0;
+}
+.folder-row > button:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+}
+.profile-picture img {
+  max-width: 180px;
+  max-height: 180px;
+  border-radius: 8px;
+  object-fit: contain;
+  margin-top: 20px;
+}
+.plugin-settings {
+  padding: 16px;
+  min-width: 300px;
+  max-width: 600px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-top: 12px;
+}
+.plugin-settings .setting-row {
+  gap: 20px;
+}
+.command-suggestions {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+  margin: 0 18px;
+}
+.command-suggestions button {
+  font-size: 11px;
+  padding: 5px 8px;
+}
+:root[data-theme='light'] .folder-tree {
+  background: #edf3f0;
+}
+@media (max-width: 760px) {
+  .folder-tree {
+    width: 135px;
+  }
+  .plugin-settings {
+    min-width: 220px;
+  }
+  .table-footer {
+    flex-wrap: wrap;
+  }
+}

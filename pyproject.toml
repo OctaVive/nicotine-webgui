@@ -1,0 +1,10 @@
+[project]
+name = "nicotine-webgui"
+version = "0.1.0"
+description = "Local browser companion for Nicotine+"
+requires-python = ">=3.9"
+license = "GPL-3.0-or-later"
+
+[tool.pytest.ini_options]
+testpaths = ["tests/bridge", "tests/container"]
+pythonpath = ["plugin", "dev", "."]

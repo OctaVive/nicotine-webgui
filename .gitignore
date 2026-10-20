@@ -1,0 +1,15 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+node_modules/
+web/dist/
+plugin/webgui/static/assets/
+config/
+data/
+downloads/
+shares/
+test-results/
+playwright-report/
+.pytest_cache/
+*.tsbuildinfo

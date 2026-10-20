@@ -1,0 +1,35 @@
+name: nicotine-webgui
+services:
+  nicotine:
+    image: nicotine-webgui:local
+    build:
+      context: .
+      args:
+        NICOTINE_VERSION: "3.3.6"
+        UID: ${PUID:-1000}
+        GID: ${PGID:-1000}
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-UTC}
+      NICOTINE_WEBUI_TOKEN: ${WEBUI_TOKEN:?Set WEBUI_TOKEN in .env}
+      NICOTINE_WEBUI_TRUSTED_HOSTS: localhost,127.0.0.1
+      NICOTINE_USERNAME: ${NICOTINE_USERNAME:-}
+      NICOTINE_PASSWORD: ${NICOTINE_PASSWORD:-}
+      NICOTINE_SHARES: ${NICOTINE_SHARES:-}
+    ports:
+      - "127.0.0.1:8181:8181"
+      - "2234:2234/tcp"
+    volumes:
+      - ./config:/config
+      - ./data:/data
+      - ./downloads:/data/nicotine/downloads
+      - ./shares:/shares:ro
+    user: "${PUID:-1000}:${PGID:-1000}"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    stop_grace_period: 30s
