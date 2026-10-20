@@ -21,13 +21,12 @@ RUN groupadd --gid "${GID}" nicotine \
     && pip install --no-deps "nicotine-plus==${NICOTINE_VERSION}"
 COPY plugin/ /opt/nicotine-webgui/plugin/
 COPY --from=web /build/dist/ /opt/nicotine-webgui/plugin/webgui/static/
-COPY docker/entrypoint.sh docker/bootstrap.py /usr/local/bin/
-RUN chmod 0755 /usr/local/bin/entrypoint.sh \
-    && mkdir -p /data /config /shares \
+COPY --chmod=0644 docker/bootstrap.py /usr/local/bin/bootstrap.py
+RUN mkdir -p /data /config /shares \
     && chown nicotine:nicotine /data /config
 USER nicotine
 EXPOSE 8181 2234/tcp
 HEALTHCHECK --interval=30s --timeout=5s --start-period=90s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8181/api/v1/health', timeout=3)"
-ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+ENTRYPOINT ["python", "/usr/local/bin/bootstrap.py"]
 CMD ["python", "-m", "pynicotine", "--headless"]

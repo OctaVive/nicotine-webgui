@@ -5,6 +5,7 @@ import configparser
 import os
 from pathlib import Path
 import shutil
+import sys
 import tempfile
 
 
@@ -70,8 +71,11 @@ def bootstrap(config_root, data_root, plugin_source, environ):
 
 
 if __name__ == "__main__":
+    os.umask(0o077)
     try:
         bootstrap(os.environ.get("XDG_CONFIG_HOME", "/config"), os.environ.get("XDG_DATA_HOME", "/data"),
                   os.environ.get("NICOTINE_WEBUI_PLUGIN_SOURCE", "/opt/nicotine-webgui/plugin"), os.environ)
+        if len(sys.argv) > 1:
+            os.execvp(sys.argv[1], sys.argv[1:])
     except (OSError, ValueError, SyntaxError, configparser.Error) as error:
         raise SystemExit(f"Bootstrap failed: {error}") from None
